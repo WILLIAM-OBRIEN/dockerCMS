@@ -26,6 +26,8 @@ DELETE /images/<id>                 Delete a specific image
 DELETE /images                      Delete all images
 """
 
+docker_name = "dockercms"
+
 @app.route('/containers', methods=['GET'])
 def containers_index():
     """
@@ -46,8 +48,7 @@ def images_index():
     """
     Lists all images 
     """
-    imgVar='images'
-	output = docker(imgVar)
+    output = docker('images')
     resp = json.dumps(docker_images_to_array(output))
     return Response(response=resp, mimetype="application/json")
 
@@ -56,8 +57,8 @@ def containers_show(id):
     """
     Inspect specific container
     """
-	containerID = id
-	output = docker('inspect',containerID)
+    containerID = id
+    output = docker('inspect',containerID)
     resp = output
 
     return Response(response=resp, mimetype="application/json")
@@ -67,9 +68,9 @@ def containers_log(id):
     """
     Dump specific container logs
     """
-	containerID = id
-	output = docker("logs",str(containerID))
-    resp = str(docker_logs_to_object(str(containerID,output)))
+    containerID=id
+    output = docker("logs",str(containerID))
+    resp = str(docker_logs_to_object(str(containerID),output))
     return Response(response=resp, mimetype="application/json")
 
 
@@ -78,7 +79,7 @@ def images_remove(id):
     """
     Delete a specific image
     """
-	imageID = id
+    imageID = id
     docker ('rmi', imageID)
     resp = '{"id": "%s"}' % imageID
     return Response(response=resp, mimetype="application/json")
@@ -88,9 +89,8 @@ def containers_remove(id):
     """
     Delete a specific container - must be already stopped/killed
     """
-	containerID = id
-    docker ('rm', containerID)
-    resp = '{"id": "%s"}' % containerID
+    docker ('rm', id)
+    resp = '{"id": "%s"}' % id
     return Response(response=resp, mimetype="application/json")
 
 @app.route('/containers', methods=['DELETE'])
@@ -98,11 +98,12 @@ def containers_remove_all():
     """
     Force remove all containers - dangrous!
     """
-	output = docker('ps','-a')
-	containerDeletionList = docker_ps_to_array(output)
-	for cont in containerDeletionList
-		docker("stop",cont["id"])
-		docker("rm",cont["id"])
+    output = docker('ps','-a')
+    containerDeletionList = docker_ps_to_array(output)
+    for cont in containerDeletionList:
+    	if cont["name"]!=docker_name:
+    		docker("stop",cont["id"])
+    		docker("rm",cont["id"])
     resp = '{response:"Deleted all containers!"}'
     return Response(response=resp, mimetype="application/json")
 
@@ -111,10 +112,11 @@ def images_remove_all():
     """
     Force remove all images - dangrous!
     """
-	output = docker('images')
-	imageDeletionList = docker_images_to_array(output)
-	for img in imageDeletionList
-		docker("rmi",img["id"])
+    output = docker('images')
+    imageDeletionList = docker_images_to_array(output)
+    for img in imageDeletionList:
+    	if img["name"]!=docker_name:
+    		docker("rmi",img["id"])
     resp = '{response:"Deleted all images!"}'
     return Response(response=resp, mimetype="application/json")
 
@@ -137,10 +139,11 @@ def images_create():
     Create image (from uploaded Dockerfile)
     """
     dockerfile = request.files['file']
-	dockerfile.save('NewDockerFile')
-    docker('build', '-t', 'custom', '.')
-	ListOfImages = docker('images')
-    resp = json.dumps(docker_images_to_array(ListOfImages))
+    dockerfile.save('Dockerfile')
+    docker('build', '-t', 'test', '.')
+    i = docker_images_to_array(docker('images'))
+
+    resp =  '{"id": "%s"}' %i[0]['id']
     return Response(response=resp, mimetype="application/json")
 
 
@@ -151,14 +154,14 @@ def containers_update(id):
     """
     Update container attributes (support: state=running|stopped)
     """
-	containerID = id
+    containerID = id
     body = request.get_json(force=True)
     try:
         state = body['state']
         if state == 'running':
             docker('restart', containerID)
     except:
-        pass
+    	pass
 
     resp = '{"id": "%s"}' % containerID
     return Response(response=resp, mimetype="application/json")
@@ -168,15 +171,13 @@ def images_update(id):
     """
     Update image attributes (support: name[:tag])  tag name should be lowercase only
     """
-	imageID = id
-	imageVar = request.get_json(force=True)
-	try:
-		imageTag = imageVar['tag']
-		docker('tag', imageID, imageTag)
-		
-	except:
-		pass
-		
+    imageID = id
+    imageVar = request.get_json(force=True)
+    try:
+    	imageTag = imageVar['tag']
+    	docker('tag', imageID, imageTag)
+    except:
+    	pass
     resp = '{"id","%s"}' % imageID
     return Response(response=resp, mimetype="application/json")
 
@@ -187,9 +188,11 @@ def docker(*args):
         cmd.append(sub)
     process = Popen(cmd, stdout=PIPE, stderr=PIPE)
     stdout, stderr = process.communicate()
-    if stderr.startswith('Error'):
-        print 'Error: {0} -> {1}'.format(' '.join(cmd), stderr)
-    return stderr + stdout
+    error = stderr.decode('utf-8')
+    output = stdout.decode('utf-8')
+    if error.startswith('Error'):
+        print ('Error: {0} -> {1}'.format(' '.join(cmd), stderr))
+    return error + output
 
 # 
 # Docker output parsing helpers
